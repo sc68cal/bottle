@@ -17,7 +17,7 @@ Greenlets for the rescue
 
 Most servers limit the size of their worker pools to a relatively low number of concurrent threads, due to the high overhead involved in switching between and creating new threads. While threads are cheap compared to processes (forks), they are still expensive to create for each new connection.
 
-The `gevent <http://www.gevent.org/>`_ module adds *greenlets* to the mix. Greenlets behave similar to traditional threads, but are cheap to create. A gevent-based server can spawn thousands of greenlets (one for each connection) with almost no overhead, allowing individual greenlets to block, because new greenlets are always being spawned to answer new requests. 
+The `gevent <http://www.gevent.org/>`_ module adds *greenlets* to the mix. Greenlets behave similar to traditional threads, but are very cheap to create. A gevent-based server can spawn thousands of greenlets (one for each connection) with almost no overhead. Blocking individual greenlets has no impact on the servers ability to accept new requests. The number of concurrent connections is virtually unlimited.
 
 This makes creating asynchronous applications incredibly easy, because they look and feel like synchronous applications. A gevent-based server is actually not asynchronous, but massively multi-threaded. Here is an example::
 
@@ -36,7 +36,7 @@ This makes creating asynchronous applications incredibly easy, because they look
 
     run(host='0.0.0.0', port=8080, server='gevent')
 
-The first line is important. It causes gevent to monkey-patch most of Python's blocking APIs, and prevents blocks in the current thread by instead passing the CPU to the next greenlet. It actually replaces Python's threading with gevent-based pseudo-threads. This is why you can still use ``time.sleep()`` which would normally block a thread. If you don't feel comfortable with monkey-patching python build-ins, you can use the corresponding gevent functions (``gevent.sleep()`` in this case).
+The first line is important. It causes gevent to monkey-patch most of Python's blocking APIs to not block the current thread, but pass the CPU to the next greenlet instead. It actually replaces Python's threading with gevent-based pseudo-threads. This is why you can still use ``time.sleep()`` which would normally block the whole thread. If you don't feel comfortable with monkey-patching python build-ins, you can use the corresponding gevent functions (``gevent.sleep()`` in this case).
 
 If you run this script and point your browser to ``http://localhost:8080/stream``, you should see `START`, `MIDDLE`, and `END` show up one by one (rather than waiting 8 seconds to see them all at once). It works exactly as with normal threads, but now your server can handle thousands of concurrent requests without any problems.
 
@@ -54,7 +54,7 @@ A very common design pattern in asynchronous frameworks (including tornado, twis
             worker.on_data(lambda chunk: self.write(chunk))
             worker.on_finish(lambda: self.finish())
 
-The main benefit is that the request handler terminates early. The handling thread can move on and accept an new request while the callbacks continue to write to sockets of previous requests. This is how these frameworks manage to process a lot of concurrent requests with only a small number of OS threads.
+The main benefit is that the request handler terminates early. The handling thread can move on and accept new requests while the callbacks continue to write to sockets of previous requests. This is how these frameworks manage to process a lot of concurrent requests with only a small number of OS threads.
 
 With Gevent+WSGI, things are different: First, terminating early has no benefit because we have an unlimited pool of (pseudo)threads to accept new connections. Second, we cannot terminate early because that would close the socket (as required by WSGI). Third, we must return an iterable to conform to WSGI.
 
