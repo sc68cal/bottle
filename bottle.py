@@ -66,9 +66,9 @@ NCTextIOWrapper = None
 if sys.version_info >= (3,0,0): # pragma: no cover
     # See Request.POST
     from io import BytesIO
-    def touni(x, enc='utf8'):
+    def touni(x, enc='utf8', err='strict'):
         """ Convert anything to unicode """
-        return str(x, encoding=enc) if isinstance(x, bytes) else str(x)
+        return str(x, enc, err) if isinstance(x, bytes) else str(x)
     if sys.version_info < (3,2,0):
         from io import TextIOWrapper
         class NCTextIOWrapper(TextIOWrapper):
@@ -78,9 +78,9 @@ if sys.version_info >= (3,0,0): # pragma: no cover
 else:
     from StringIO import StringIO as BytesIO
     bytes = str
-    def touni(x, enc='utf8'):
+    def touni(x, enc='utf8', err='strict'):
         """ Convert anything to unicode """
-        return x if isinstance(x, unicode) else unicode(str(x), encoding=enc)
+        return x if isinstance(x, unicode) else unicode(str(x), enc, err)
 
 def tob(data, enc='utf8'):
     """ Convert anything to bytes """
@@ -301,7 +301,7 @@ class Router(object):
         ''' Return a (target, url_agrs) tuple or raise HTTPError(404/405). '''
         targets, urlargs = self._match_path(environ)
         if not targets:
-            raise HTTPError(404, "Not found: " + environ['PATH_INFO'])
+            raise HTTPError(404, "Not found: " + repr(environ['PATH_INFO']))
         method = environ['REQUEST_METHOD'].upper()
         if method in targets:
             return targets[method], urlargs
@@ -1266,13 +1266,19 @@ class WSGIHeaderDict(DictMixin):
         The API will remain stable even on changes to the relevant PEPs.
         Currently PEP 333, 444 and 3333 are supported. (PEP 444 is the only one
         that uses non-native strings.)
-     '''
+    '''
+    #: List of keys that do not have a 'HTTP_' prefix.
+    cgikeys = ('CONTENT_TYPE', 'CONTENT_LENGTH')
 
     def __init__(self, environ):
         self.environ = environ
 
-    def _ekey(self, key): # Translate header field name to environ key.
-        return 'HTTP_' + key.replace('-','_').upper()
+    def _ekey(self, key):
+        ''' Translate header field name to CGI/WSGI environ key. '''
+        key = key.replace('-','_').upper()
+        if key in self.cgikeys:
+            return key
+        return 'HTTP_' + key
 
     def raw(self, key, default=None):
         ''' Return the header value as is (may be bytes or unicode). '''
@@ -1291,6 +1297,8 @@ class WSGIHeaderDict(DictMixin):
         for key in self.environ:
             if key[:5] == 'HTTP_':
                 yield key[5:].replace('_', '-').title()
+            elif key in self.cgikeys:
+                yield key.replace('_', '-').title()
 
     def keys(self): return list(self)
     def __len__(self): return len(list(self))
@@ -1356,13 +1364,15 @@ def redirect(url, code=303):
 
 def send_file(*a, **k): #BC 0.6.4
     """ Raises the output of static_file(). (deprecated) """
+    depr("Use 'raise static_file()' instead of 'send_file()'.")
     raise static_file(*a, **k)
 
 
-def static_file(filename, root, guessmime=True, mimetype=None, download=False):
-    """ Opens a file in a safe way and returns a HTTPError object with status
-        code 200, 305, 401 or 404. Sets Content-Type, Content-Length and
-        Last-Modified header. Obeys If-Modified-Since header and HEAD requests.
+def static_file(filename, root, mimetype='auto', guessmime=True, download=False):
+    """ Open a file in a safe way and return :exc:`HTTPResponse` with status
+        code 200, 305, 401 or 404. Set Content-Type, Content-Encoding, 
+        Content-Length and Last-Modified header. Obey If-Modified-Since header
+        and HEAD requests.
     """
     root = os.path.abspath(root) + os.sep
     filename = os.path.abspath(os.path.join(root, filename.strip('/\\')))
@@ -1375,31 +1385,34 @@ def static_file(filename, root, guessmime=True, mimetype=None, download=False):
     if not os.access(filename, os.R_OK):
         return HTTPError(403, "You do not have permission to access this file.")
 
-    if not mimetype and guessmime:
-        header['Content-Type'] = mimetypes.guess_type(filename)[0]
-    else:
-        header['Content-Type'] = mimetype if mimetype else 'text/plain'
+    if not guessmime: #0.9
+       if mimetype == 'auto': mimetype = 'text/plain'
+       depr("To disable mime-type guessing, specify a type explicitly.")
+    if mimetype == 'auto':
+        mimetype, encoding = mimetypes.guess_type(filename)
+        if mimetype: header['Content-Type'] = mimetype
+        if encoding: header['Content-Encoding'] = encoding
+    elif mimetype:
+        header['Content-Type'] = mimetype
 
-    if download == True:
-        download = os.path.basename(filename)
     if download:
+        download = os.path.basename(filename if download == True else download)
         header['Content-Disposition'] = 'attachment; filename="%s"' % download
 
     stats = os.stat(filename)
+    header['Content-Length'] = stats.st_size
     lm = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime(stats.st_mtime))
     header['Last-Modified'] = lm
+
     ims = request.environ.get('HTTP_IF_MODIFIED_SINCE')
     if ims:
-        ims = ims.split(";")[0].strip() # IE sends "<date>; length=146"
-        ims = parse_date(ims)
-        if ims is not None and ims >= int(stats.st_mtime):
-            header['Date'] = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
-            return HTTPResponse(status=304, header=header)
-    header['Content-Length'] = stats.st_size
-    if request.method == 'HEAD':
-        return HTTPResponse('', header=header)
-    else:
-        return HTTPResponse(open(filename, 'rb'), header=header)
+        ims = parse_date(ims.split(";")[0].strip())
+    if ims is not None and ims >= int(stats.st_mtime):
+        header['Date'] = time.strftime("%a, %d %b %Y %H:%M:%S GMT", time.gmtime())
+        return HTTPResponse(status=304, header=header)
+
+    body = '' if request.method == 'HEAD' else open(filename, 'rb')
+    return HTTPResponse(body, header=header)
 
 
 
@@ -1439,7 +1452,7 @@ def parse_auth(header):
 
 def _lscmp(a, b):
     ''' Compares two strings in a cryptographically save way:
-        Runtime is not affected by a common prefix. '''
+        Runtime is not affected by length of common prefix. '''
     return not sum(0 if x==y else 1 for x, y in zip(a, b)) and len(a) == len(b)
 
 
