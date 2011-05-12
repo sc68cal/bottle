@@ -15,7 +15,7 @@ License: MIT (see LICENSE.txt for details)
 from __future__ import with_statement
 
 __author__ = 'Marcel Hellkamp'
-__version__ = '0.9.dev'
+__version__ = '0.10.dev'
 __license__ = 'MIT'
 
 import base64
@@ -24,6 +24,7 @@ import email.utils
 import functools
 import hmac
 import httplib
+import imp
 import itertools
 import mimetypes
 import os
@@ -39,8 +40,8 @@ import warnings
 from Cookie import SimpleCookie
 from tempfile import TemporaryFile
 from traceback import format_exc
-from urllib import urlencode
-from urlparse import urlunsplit, urljoin
+from urllib import urlencode, quote as urlquote, unquote as urlunquote
+from urlparse import urlunsplit, urljoin, SplitResult as UrlSplitResult
 
 try: from collections import MutableMapping as DictMixin
 except ImportError: # pragma: no cover
@@ -410,6 +411,7 @@ class Bottle(object):
         self.typefilter = self.install(TypeFilterPlugin())
         if autojson:
             self.install(JSONPlugin())
+        self.install(TemplatePlugin())
 
     def optimize(self, *a, **ka):
         depr("Bottle.optimize() is obsolete.")
@@ -434,6 +436,7 @@ class Bottle(object):
                 raise TypeError('Conflict with existing mount: %s' % other)
         path_depth = prefix.count('/') + 1
         options.setdefault('method', 'ANY')
+        options.setdefault('skip', True)
         self.mounts[prefix] = app
         @self.route('/%s/:#.*#' % prefix, **options)
         def mountpoint():
@@ -441,7 +444,7 @@ class Bottle(object):
             return app.handle(request.environ)
 
     def add_filter(self, ftype, func):
-        depr("Filters are deprecated. Replace any filters with plugins.") #0.9
+        depr("Filters are deprecated and can be replaced with plugins.") #0.9
         self.typefilter.add(ftype, func)
 
     def install(self, plugin):
@@ -473,10 +476,14 @@ class Bottle(object):
         return removed
 
     def reset(self, id=None):
-        ''' Reset all routes (re-apply plugins) and clear all caches. If an ID
-            is given, only that specific route is affected. '''
+        ''' Reset all routes (force plugins to be re-applied) and clear all
+            caches. If an ID is given, only that specific route is affected. '''
         if id is None: self.ccache.clear()
         else: self.ccache.pop(id, None)
+        if DEBUG:
+            for route in self.routes:
+                if route['id'] not in self.ccache:
+                    self.ccache[route['id']] = self._build_callback(route)
 
     def close(self):
         ''' Close the application and all installed plugins. '''
@@ -485,11 +492,16 @@ class Bottle(object):
         self.stopped = True
 
     def match(self, environ):
-        """ Search for a matching route and return a (callback, urlargs) tuple.
+        """ (deprecated) Search for a matching route and return a
+            (callback, urlargs) tuple.
             The first element is the associated route callback with plugins
             applied. The second value is a dictionary with parameters extracted
             from the URL. The :class:`Router` raises :exc:`HTTPError` (404/405)
             on a non-match."""
+        depr("This method will change semantics in 0.10.")
+        return self._match(environ)
+        
+    def _match(self, environ):
         handle, args = self.router.match(environ)
         environ['route.handle'] = handle # TODO move to router?
         environ['route.url_args'] = args
@@ -560,14 +572,9 @@ class Bottle(object):
         if 'decorate' in config:
             depr("The 'decorate' parameter was renamed to 'apply'") # 0.9
             plugins += makelist(config.pop('decorate'))
-        if 'template' in config: # TODO Make plugin
-            depr("The 'template' parameter is no longer used. Add the view() "\
-                 "decorator to the 'apply' parameter instead.") # 0.9
-            tpl, tplo = config.pop('template'), config.pop('template_opts', {})
-            plugins.insert(0, view(tpl, **tplo))
         if config.pop('no_hooks', False):
             depr("The no_hooks parameter is no longer used. Add 'hooks' to the"\
-                 "list of skipped plugins instead.") # 0.9
+                 " list of skipped plugins instead.") # 0.9
             skiplist.append('hooks')
         static = config.get('static', False) # depr 0.9
 
@@ -581,6 +588,7 @@ class Bottle(object):
                     self.routes.append(cfg)
                     cfg['id'] = self.routes.index(cfg)
                     self.router.add(rule, verb, cfg['id'], name=name, static=static)
+                    if DEBUG: self.ccache[cfg['id']] = self._build_callback(cfg)
             return callback
 
         return decorator(callback) if callback else decorator
@@ -623,18 +631,23 @@ class Bottle(object):
         depr("Call Bottle.hooks.remove() instead.") #0.9
         self.hooks.remove(name, func)
 
-    def handle(self, environ, method='GET'):
-        """ Execute the first matching route callback and return the result.
-            :exc:`HTTPResponse` exceptions are catched and returned. If :attr:`Bottle.catchall` is true, other exceptions are catched as
+    def handle(self, path, method='GET'):
+        """ (deprecated) Execute the first matching route callback and return
+            the result. :exc:`HTTPResponse` exceptions are catched and returned.
+            If :attr:`Bottle.catchall` is true, other exceptions are catched as
             well and returned as :exc:`HTTPError` instances (500).
         """
-        if isinstance(environ, str):
-            depr("Bottle.handle() takes an environ dictionary.") # v0.9
-            environ = {'PATH_INFO': environ, 'REQUEST_METHOD': method.upper()}
+        depr("This method will change semantics in 0.10. Try to avoid it.")
+        if isinstance(path, dict):
+            return self._handle(path)
+        return self._handle({'PATH_INFO': path, 'REQUEST_METHOD': method.upper()})
+        
+    def _handle(self, environ):
         if not self.serve:
+            depr("Bottle.serve will be removed in 0.10.")
             return HTTPError(503, "Server stopped")
         try:
-            callback, args = self.match(environ)
+            callback, args = self._match(environ)
             return callback(**args)
         except HTTPResponse, r:
             return r
@@ -672,7 +685,10 @@ class Bottle(object):
         # HTTPError or HTTPException (recursive, because they may wrap anything)
         if isinstance(out, HTTPError):
             out.apply(response)
-            return self._cast(self.error_handler.get(out.status, repr)(out), request, response)
+            out = self.error_handler.get(out.status, repr)(out)
+            if isinstance(out, HTTPResponse):
+                depr('Error handlers must not return :exc:`HTTPResponse`.') #0.9
+            return self._cast(out, request, response)
         if isinstance(out, HTTPResponse):
             out.apply(response)
             return self._cast(out.output, request, response)
@@ -716,7 +732,7 @@ class Bottle(object):
             environ['bottle.app'] = self
             request.bind(environ)
             response.bind()
-            out = self.handle(environ)
+            out = self._handle(environ)
             out = self._cast(out, request, response)
             # rfc2616 section 4.3
             if response.status in (100, 101, 204, 304) or request.method == 'HEAD':
@@ -811,37 +827,42 @@ class Request(threading.local, DictMixin):
             if 'bottle.' + key in self.environ:
                 del self.environ['bottle.' + key]
 
+    @DictProperty('environ', 'bottle.urlparts', read_only=True)
+    def urlparts(self):
+        ''' Return a :class:`urlparse.SplitResult` tuple that can be used
+            to reconstruct the full URL as requested by the client.
+            The tuple contains: (scheme, host, path, query_string, fragment).
+            The fragment is always empty because it is not visible to the server.
+        '''
+        env = self.environ
+        host = env.get('HTTP_X_FORWARDED_HOST') or env.get('HTTP_HOST', '')
+        http = env.get('wsgi.url_scheme', 'http')
+        port = env.get('SERVER_PORT')
+        if ':' in host: # Overrule SERVER_POST (proxy support)
+            host, port = host.rsplit(':', 1)
+        if not host or host == '127.0.0.1':
+            host = env.get('SERVER_NAME', host)
+        if port and http+port not in ('http80', 'https443'):
+            host += ':' + port
+        spath = self.environ.get('SCRIPT_NAME','').rstrip('/') + '/'
+        rpath = self.path.lstrip('/')
+        path = urlquote(urljoin(spath, rpath))
+        return UrlSplitResult(http, host, path, env.get('QUERY_STRING'), '')
+
     @property
-    def query_string(self):
-        """ The part of the URL following the '?'. """
-        return self.environ.get('QUERY_STRING', '')
+    def url(self):
+        """ Full URL as requested by the client. """
+        return self.urlparts.geturl()
 
     @property
     def fullpath(self):
         """ Request path including SCRIPT_NAME (if present). """
-        spath = self.environ.get('SCRIPT_NAME','').rstrip('/') + '/'
-        rpath = self.path.lstrip('/')
-        return urljoin(spath, rpath)
+        return urlunquote(self.urlparts[2])
 
     @property
-    def url(self):
-        """ Full URL as requested by the client (computed).
-
-            This value is constructed out of different environment variables
-            and includes scheme, host, port, scriptname, path and query string.
-
-            Special characters are NOT escaped.
-        """
-        scheme = self.environ.get('wsgi.url_scheme', 'http')
-        host   = self.environ.get('HTTP_X_FORWARDED_HOST')
-        host   = host or self.environ.get('HTTP_HOST', None)
-        if not host:
-            host = self.environ.get('SERVER_NAME')
-            port = self.environ.get('SERVER_PORT', '80')
-            if (scheme, port) not in (('https','443'), ('http','80')):
-                host += ':' + port
-        parts = (scheme, host, self.fullpath, self.query_string, '')
-        return urlunsplit(parts)
+    def query_string(self):
+        """ The part of the URL following the '?'. """
+        return self.environ.get('QUERY_STRING', '')
 
     @property
     def content_length(self):
@@ -1109,6 +1130,7 @@ class Response(threading.local):
 ###############################################################################
 
 
+
 class JSONPlugin(object):
     name = 'json'
 
@@ -1179,11 +1201,11 @@ class TypeFilterPlugin(object):
         self.app = app
 
     def add(self, ftype, func):
-        if not self.filter and app: self.app.reset()
         if not isinstance(ftype, type):
             raise TypeError("Expected type object, got %s" % type(ftype))
         self.filter = [(t, f) for (t, f) in self.filter if t != ftype]
         self.filter.append((ftype, func))
+        if len(self.filter) == 1 and self.app: self.app.reset()
 
     def apply(self, callback, context):
         filter = self.filter
@@ -1195,6 +1217,54 @@ class TypeFilterPlugin(object):
                     rv = filterfunc(rv)
             return rv
         return wrapper
+
+
+class TemplatePlugin(object):
+    ''' This plugin applies the :func:`view` decorator to all routes with a
+        `template` config parameter. If the parameter is a tuple, the second
+        element must be a dict with additional options (e.g. `template_engine`)
+        or default variables for the template. '''
+    name = 'template'
+
+    def apply(self, callback, context):
+        conf = context['config'].get('template')
+        if isinstance(conf, (tuple, list)) and len(conf) == 2:
+            return view(conf[0], **conf[1])(callback)
+        elif isinstance(conf, str) and 'template_opts' in context['config']:
+            depr('The `template_opts` parameter is deprecated.') #0.9
+            return view(conf, **context['config']['template_opts'])(callback)
+        elif isinstance(conf, str):
+            return view(conf)(callback)
+        else:
+            return callback
+
+
+#: Not a plugin, but part of the plugin API. TODO: Find a better place.
+class _ImportRedirect(object):
+    def __init__(self, name, impmask):
+        ''' Create a virtual package that redirects imports (see PEP 302). '''
+        self.name = name
+        self.impmask = impmask
+        self.module = sys.modules.setdefault(name, imp.new_module(name))
+        self.module.__dict__.update({'__file__': '<virtual>', '__path__': [],
+                                    '__all__': [], '__loader__': self})
+        sys.meta_path.append(self)
+
+    def find_module(self, fullname, path=None):
+        if '.' not in fullname: return
+        packname, modname = fullname.rsplit('.', 1)
+        if packname != self.name: return
+        return self
+
+    def load_module(self, fullname):
+        if fullname in sys.modules: return sys.modules[fullname]
+        packname, modname = fullname.rsplit('.', 1)
+        realname = self.impmask % modname
+        __import__(realname)
+        module = sys.modules[fullname] = sys.modules[realname]
+        setattr(self.module, modname, module)
+        module.__loader__ = self
+        return module
 
 
 
@@ -1356,9 +1426,8 @@ def abort(code=500, text='Unknown Error: Application stopped.'):
 
 
 def redirect(url, code=303):
-    """ Aborts execution and causes a 303 redirect """
-    scriptname = request.environ.get('SCRIPT_NAME', '').rstrip('/') + '/'
-    location = urljoin(request.url, urljoin(scriptname, url))
+    """ Aborts execution and causes a 303 redirect. """
+    location = urljoin(request.url, url)
     raise HTTPResponse("", status=code, header=dict(Location=location))
 
 
@@ -1370,7 +1439,7 @@ def send_file(*a, **k): #BC 0.6.4
 
 def static_file(filename, root, mimetype='auto', guessmime=True, download=False):
     """ Open a file in a safe way and return :exc:`HTTPResponse` with status
-        code 200, 305, 401 or 404. Set Content-Type, Content-Encoding, 
+        code 200, 305, 401 or 404. Set Content-Type, Content-Encoding,
         Content-Length and Last-Modified header. Obey If-Modified-Since header
         and HEAD requests.
     """
@@ -1422,6 +1491,7 @@ def static_file(filename, root, mimetype='auto', guessmime=True, download=False)
 ###############################################################################
 # HTTP Utilities and MISC (TODO) ###############################################
 ###############################################################################
+
 
 def debug(mode=True):
     """ Change the debug level.
@@ -2020,3 +2090,7 @@ local = threading.local()
 # BC: 0.6.4 and needed for run()
 app = default_app = AppStack()
 app.push()
+
+#: A virtual package that redirects import statements.
+#: Example: ``import bottle.ext.sqlite`` actually imports `bottle_sqlite`.
+ext = _ImportRedirect(__name__+'.ext', 'bottle_%s').module

@@ -73,13 +73,13 @@ This tutorial assumes you have Bottle either `installed or copied <#installation
 
 Whats happening here?
 
-1. First we import some bottle components. The :func:`route` decorator and the :func:`run` function. 
+1. First we import some Bottle components. The :func:`route` decorator and the :func:`run` function. 
 2. The :func:`route` :term:`decorator` is used do bind a piece of code to an URL. In this example we want to answer requests to the ``/hello`` URL.
 3. This function is the :term:`handler function` or :term:`callback` for the ``/hello`` route. It is called every time someone requests the ``/hello`` URL and is responsible for generating the page content.
 4. In this example we simply return a string to the browser.
 5. In the last line we start the actual HTTP server. The default is a development server running on 'localhost' port 8080 and serving requests until you hit :kbd:`Control-c`.
 
-This is it. Run this script, visit http://localhost:8080/hello and you will see "Hello World!" in your browser. Of cause this is a very simple example, but it shows the basic concept of how applications are built with bottle. Continue reading and you'll see what else is possible.
+This is it. Run this script, visit http://localhost:8080/hello and you will see "Hello World!" in your browser. Of cause this is a very simple example, but it shows the basic concept of how applications are built with Bottle. Continue reading and you'll see what else is possible.
   
 .. rubric:: The Application Object
 
@@ -202,16 +202,21 @@ The :func:`static_file` function is a helper to serve files in a safe and conven
 
 Be careful when specifying a relative root-path such as ``root='./static/files'``. The working directory (``./``) and the project directory are not always the same.
 
+
+.. _tutorial-errorhandling:
+
 Error Pages
 ------------------------------------------------------------------------------
 
-If anything goes wrong, Bottle displays an informative but fairly boring error page. You can override the default error pages using the :func:`error` decorator. It works similar to the :func:`route` decorator but expects an HTTP status code instead of a route::
+If anything goes wrong, Bottle displays an informative but fairly boring error page. You can override the default for a specific HTTP status code with the :func:`error` decorator::
 
   @error(404)
   def error404(error):
       return 'Nothing here, sorry'
 
-The ``error`` parameter passed to the error handler is an instance of :exc:`HTTPError`.
+From now on, `404 File not Found` errors will display a custom error page to the user. The only parameter passed to the error-handler is an instance of :exc:`HTTPError`. Apart from that, an error-handler is quite similar to a regular request callback. You can read from :data:`request`, write to :data:`response` and return any supported data-type except for :exc:`HTTPError` instances.
+
+Error handlers are used only if your application returns or raises an :exc:`HTTPError` exception (:func:`abort` does just that). Changing :attr:`Request.status` or returning :exc:`HTTPResponse` won't trigger the error handler.
 
 
 
@@ -394,7 +399,7 @@ As mentioned above, cookies are easily forged by malicious clients. Bottle can c
         else:
             return "You are not logged in. Access denied."
 
-In addition, bottle automatically pickles and unpickles any data stored to signed cookies. This allows you to store any pickle-able object (not only strings) to cookies, as long as the pickled data does not exceed the 4kb limitation.
+In addition, Bottle automatically pickles and unpickles any data stored to signed cookies. This allows you to store any pickle-able object (not only strings) to cookies, as long as the pickled data does not exceed the 4kb limitation.
 
 .. warning:: Signed cookies are not encrypted (the client can still see the content) and not copy-protected (the client can restore an old cookie). The main intention is to make pickling and unpickling save, not to store secret information at client side.
 
@@ -562,7 +567,7 @@ Plugins
 
 .. versionadded:: 0.9
 
-Bottles core features cover most of the common use-cases, but as a micro-framework it has its limits. This is where "Plugins" come into play. They add missing functionality to the framework, integrate third party libraries or just automate some repetitive work.
+Bottle's core features cover most common use-cases, but as a micro-framework it has its limits. This is where "Plugins" come into play. Plugins add missing functionality to the framework, integrate third party libraries, or just automate some repetitive work.
 
 We have a growing :doc:`/plugins/index` and most plugins are designed to be portable and re-usable across applications. The chances are high that your problem has already been solved and a ready-to-use plugin exists. If not, the :doc:`/plugindev` may help you.
 
@@ -570,6 +575,7 @@ The effects and APIs of plugins are manifold and depend on the specific plugin. 
 
     from bottle import route, install, template
     from bottle_sqlite import SQLitePlugin
+    
     install(SQLitePlugin(dbfile='/tmp/test.db'))
 
     @route('/show/:post_id')
@@ -611,7 +617,7 @@ You can use a name, class or instance to :func:`uninstall` a previously installe
     install(sqlite_plugin)
 
     uninstall(sqlite_plugin) # uninstall a specific plugin
-    uninstall(SQLitePlugin)  # uninstall all plugins with that type
+    uninstall(SQLitePlugin)  # uninstall all plugins of that type
     uninstall('sqlite')      # uninstall all plugins with that name
     uninstall(True)          # uninstall all plugins at once
 
@@ -652,11 +658,28 @@ You may want to explicitly disable a plugin for a number of routes. The :func:`r
 
 The ``skip`` parameter accepts a single value or a list of values. You can use a name, class or instance to identify the plugin that is to be skipped. Set ``skip=True`` to skip all plugins at once.
 
+Plugins and Sub-Applications
+--------------------------------------------------------------------------------
 
+Most plugins are specific to the application they were installed to. Consequently, they should not affect sub-applications mounted with :meth:`Bottle.mount`. Here is an example::
 
+    root = Bottle()
+    root.mount(apps.blog, '/blog')
+    
+    @root.route('/contact', template='contact')
+    def contact():
+        return {'email': 'contact@example.com'}
+    
+    root.install(plugins.WTForms())
 
+Whenever you mount an application, Bottle creates a proxy-route on the main-application that relays all requests to the sub-application. Plugins are disabled for this kind of proxy-routes by default. As a result, our (fictional) `WTForms` plugin affects the ``/contact`` route, but does not affect the routes of the ``/blog`` sub-application.
 
-.. _tutorial-debugging:
+This behavior is intended as a sane default, but can be overridden. The following example re-activates all plugins for a specific proxy-route::
+
+    root.mount(apps.blog, '/blog', skip=None)
+
+But there is a snag: The plugin sees the whole sub-application as a single route, namely the proxy-route mentioned above. In order to affect each individual route of the sub-application, you have to install the plugin to the application explicitly.
+
 
 
 Development
@@ -705,6 +728,7 @@ Both :func:`app` and :func:`default_app` are instance of :class:`AppStack` and i
     app = default_app.pop()
 
 
+.. _tutorial-debugging:
 
 
 Debug Mode
@@ -718,12 +742,13 @@ During early development, the debug mode can be very helpful.
 
     bottle.debug(True)
 
-In this mode, bottle is much more verbose and provides helpful debugging information whenever an error occurs. It also disables some optimisations that might get in your way and adds some checks that warn you about possible misconfiguration.
+In this mode, Bottle is much more verbose and provides helpful debugging information whenever an error occurs. It also disables some optimisations that might get in your way and adds some checks that warn you about possible misconfiguration.
 
 Here is an incomplete list of things that change in debug mode:
 
-* A stacktrace is added to the default error page.
-* Templates are not cached anymore.
+* The default error page shows a traceback.
+* Templates are not cached.
+* Plugins are applied immediately.
 
 Just make sure to not use the debug mode on a production server.
 
@@ -768,7 +793,7 @@ Bottle runs on the built-in `wsgiref WSGIServer <http://docs.python.org/library/
 There are three ways to eliminate this bottleneck:
 
 * Use a multi-threaded or asynchronous HTTP server.
-* Spread the load between multiple bottle instances.
+* Spread the load between multiple Bottle instances.
 * Do both.
 
 
@@ -790,7 +815,7 @@ Multi-Threaded Server
 .. _meinheld: http://pypi.python.org/pypi/meinheld
 .. _bjoern: http://pypi.python.org/pypi/bjoern
 
-The easiest way to increase performance is to install a multi-threaded or asynchronous WSGI server like paste_ or cherrypy_ and tell bottle to start it instead of the default single-threaded one::
+The easiest way to increase performance is to install a multi-threaded or asynchronous WSGI server like paste_ or cherrypy_ and tell Bottle to start it instead of the default single-threaded one::
 
     bottle.run(server='paste') # Example
 
