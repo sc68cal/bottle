@@ -26,7 +26,6 @@ function runtest {
 
 
 
-runtest python2.5 test
 runtest python2.6 test
 runtest python2.7 test
 
