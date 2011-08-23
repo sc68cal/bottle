@@ -387,7 +387,7 @@ class Router(object):
             except (AssertionError, IndexError): # AssertionError: Too many groups
                 self.dynamic.append((re.compile('(^%s$)'%fpat),
                                     [(gpat, target)]))
-            except re.error:
+            except re.error as e:
                 raise RouteSyntaxError("Could not add Route: %s (%s)" % (rule, e))
 
     def _compile_pattern(self, rule):
