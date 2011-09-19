@@ -3,7 +3,7 @@
 
 import unittest
 import bottle
-from tools import ServerTestBase, tob, tobs
+from tools import ServerTestBase, tob, tobs, warn
 
 class TestOutputFilter(ServerTestBase):
     ''' Tests for WSGI functionality, routing and output casting (decorators) '''
@@ -68,16 +68,23 @@ class TestOutputFilter(ServerTestBase):
 
     def test_json(self):
         self.app.route('/')(lambda: {'a': 1})
-        if bottle.json_dumps:
+        try:
             self.assertBody(bottle.json_dumps({'a': 1}))
             self.assertHeader('Content-Type','application/json')
-        else:
-            print "Warning: No json module installed."
+        except ImportError:
+            warn("Skipping JSON tests.")
 
-    def test_custom(self):
-        self.app.route('/')(lambda: 5)
-        self.app.add_filter(int, lambda x: str(x))
-        self.assertBody('5')
+    def test_json_serialization_error(self):
+        """
+        Verify that 500 errors serializing dictionaries don't return
+        content-type application/json
+        """
+        self.app.route('/')(lambda: {'a': set()})
+        try:
+            self.assertStatus(500)
+            self.assertHeader('Content-Type','text/html; charset=UTF-8')
+        except ImportError:
+            warn("Skipping JSON tests.")
 
     def test_generator_callback(self):
         @self.app.route('/')

@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 import unittest
 import sys, os.path
 import bottle
@@ -53,7 +53,6 @@ class TestWsgi(ServerTestBase):
         bottle.status = 304
         for h, v in bottle.response.headerlist:
             self.assertFalse(h.lower() in bad, "Header %s not deleted" % h)
-            
 
     def test_anymethod(self):
         self.assertStatus(404, '/any')
@@ -82,17 +81,9 @@ class TestWsgi(ServerTestBase):
         @bottle.route('/my/:string')
         def test(string): return string
         self.assertBody(tob(u'urf8-öäü'), '/my/urf8-öäü')
-    
+
     def test_utf8_404(self):
         self.assertStatus(404, '/not-found/urf8-öäü')
-        
-    def test_503(self):
-        """ WSGI: Server stopped (HTTP 503) """
-        @bottle.route('/')
-        def test(): return 'bla'
-        self.assertStatus(200, '/')
-        bottle.app().serve = False
-        self.assertStatus(503, '/')
 
     def test_401(self):
         """ WSGI: abort(401, '') (HTTP 401) """
@@ -110,8 +101,16 @@ class TestWsgi(ServerTestBase):
         """ WSGI: redirect (HTTP 303) """
         @bottle.route('/')
         def test(): bottle.redirect('/yes')
-        self.assertStatus(303, '/')
-        self.assertHeader('Location', 'http://127.0.0.1/yes', '/')
+        @bottle.route('/one')
+        def test2(): bottle.redirect('/yes',305)
+        env = {'SERVER_PROTOCOL':'HTTP/1.1'}
+        self.assertStatus(303, '/', env=env)
+        self.assertHeader('Location', 'http://127.0.0.1/yes', '/', env=env)
+        env = {'SERVER_PROTOCOL':'HTTP/1.0'}
+        self.assertStatus(302, '/', env=env)
+        self.assertHeader('Location', 'http://127.0.0.1/yes', '/', env=env)
+        self.assertStatus(305, '/one', env=env)
+        self.assertHeader('Location', 'http://127.0.0.1/yes', '/one', env=env)
 
     def test_generator_callback(self):
         @bottle.route('/yield')
@@ -194,19 +193,19 @@ class TestRouteDecorator(ServerTestBase):
         self.assertBody('ok', '/test', method='POST')
         self.assertStatus(405, '/test', method='PUT')
 
-    def test_decorate(self):
+    def test_apply(self):
         def revdec(func):
             def wrapper(*a, **ka):
                 return reversed(func(*a, **ka))
             return wrapper
 
         @bottle.route('/nodec')
-        @bottle.route('/dec', decorate=revdec)
+        @bottle.route('/dec', apply=revdec)
         def test(): return '1', '2'
         self.assertBody('21', '/dec')
         self.assertBody('12', '/nodec')
 
-    def test_decorate_list(self):
+    def test_apply_list(self):
         def revdec(func):
             def wrapper(*a, **ka):
                 return reversed(func(*a, **ka))
@@ -216,8 +215,8 @@ class TestRouteDecorator(ServerTestBase):
                 return ''.join(func(*a, **ka)).title()
             return wrapper
 
-        @bottle.route('/revtitle', decorate=[revdec, titledec])
-        @bottle.route('/titlerev', decorate=[titledec, revdec])
+        @bottle.route('/revtitle', apply=[revdec, titledec])
+        @bottle.route('/titlerev', apply=[titledec, revdec])
         def test(): return 'a', 'b', 'c'
         self.assertBody('cbA', '/revtitle')
         self.assertBody('Cba', '/titlerev')
@@ -235,14 +234,6 @@ class TestRouteDecorator(ServerTestBase):
         self.assertBody('before', '/test')
         self.assertHeader('X-Hook', 'after', '/test')
 
-    def test_no_hooks(self):
-        @bottle.route(no_hooks=True)
-        def test():
-            return 'nohooks'
-        bottle.hook('before_request')(lambda: 1/0)
-        bottle.hook('after_request')(lambda: 1/0)
-        self.assertBody('nohooks', '/test')
-
     def test_template(self):
         @bottle.route(template='test {{a}} {{b}}')
         def test(): return dict(a=5, b=6)
@@ -252,11 +243,6 @@ class TestRouteDecorator(ServerTestBase):
         @bottle.route(template='test {{a}} {{b}}', template_opts={'b': 6})
         def test(): return dict(a=5)
         self.assertBody('test 5 6', '/test')
-
-    def test_static(self):
-        @bottle.route('/:foo', static=True)
-        def test(): return 'ok'
-        self.assertBody('ok', '/:foo')
 
     def test_name(self):
         @bottle.route(name='foo')
@@ -347,19 +333,19 @@ class TestDecorators(ServerTestBase):
         self.assertEqual(['/e','/e/:x','/e/:x/:y'],list(bottle.yieldroutes(e)))
 
 
-     
+
 class TestAppShortcuts(ServerTestBase):
     def setUp(self):
         ServerTestBase.setUp(self)
-    
+
     def assertWraps(self, test, other):
         self.assertEqual(test.__doc__, other.__doc__)
-    
+
     def test_module_shortcuts(self):
         for name in '''route get post put delete error mount
                        hook install uninstall'''.split():
             short = getattr(bottle, name)
-            original = getattr(bottle.app(), name)            
+            original = getattr(bottle.app(), name)
             self.assertWraps(short, original)
 
     def test_module_shortcuts_with_different_name(self):
@@ -371,7 +357,7 @@ class TestAppMounting(ServerTestBase):
     def setUp(self):
         ServerTestBase.setUp(self)
         self.subapp = bottle.Bottle()
-    
+
     def test_basicmounting(self):
         bottle.app().mount(self.subapp, '/test')
         self.assertStatus(404, '/')
@@ -390,6 +376,6 @@ class TestAppMounting(ServerTestBase):
         self.assertBody('bar', '/test/test/bar')
 
 
-    
+
 if __name__ == '__main__': #pragma: no cover
     unittest.main()

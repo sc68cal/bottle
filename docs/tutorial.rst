@@ -46,21 +46,21 @@ Bottle does not depend on any external libraries. You can just download `bottle.
     $ curl -O http://bottlepy.org/bottle.py
     $ 2to3 -w bottle.py  # Python 3.x users only!
 
-This will get you the latest development snapshot that includes all the new features. If you prefer a more stable environment, you should stick with a stable release. These are available on `PyPi <http://pypi.python.org/pypi/bottle>`_ and can be installed via :command:`pip` (recommended), :command:`easy_install` or your Linux distributions package manager:
+This will get you the latest development snapshot that includes all the new features. If you prefer a more stable environment, you should stick with the stable releases. These are available on `PyPi <http://pypi.python.org/pypi/bottle>`_ and can be installed via :command:`pip` (recommended), :command:`easy_install` or your package manager:
 
 .. code-block:: bash
 
     $ sudo pip install bottle              # recommended
-    $ sudo easy_install bottle             # alternative to pip
+    $ sudo easy_install bottle             # alternative without pip
     $ sudo apt-get install python-bottle   # works for debian, ubuntu, ...
 
-In either way, you'll need Python 2.5 or newer to run bottle applications. If you do not have permissions to install packages system-wide or simply don't want to, I suggest crating a `virtualenv <http://pypi.python.org/pypi/virtualenv>`_ first. 
+In either way, you'll need Python 2.5 or newer to run bottle applications. If you do not have permissions to install packages system-wide or simply don't want to, create a `virtualenv <http://pypi.python.org/pypi/virtualenv>`_ first. 
  
 
 A minimal Bottle Application
 ==============================================================================
 
-This tutorial assumes you have Bottle either `installed or copied <#installation>`_ into your project directory. Lets start with a very basic "Hello World" example::
+This tutorial assumes you have Bottle either :ref:`installed or copied <installation>` into your project directory. Lets start with a very basic "Hello World" example::
 
     from bottle import route, run
     
@@ -74,18 +74,19 @@ This tutorial assumes you have Bottle either `installed or copied <#installation
 Whats happening here?
 
 1. First we import some Bottle components. The :func:`route` decorator and the :func:`run` function. 
-2. The :func:`route` :term:`decorator` is used do bind a piece of code to an URL. In this example we want to answer requests to the ``/hello`` URL.
+2. The :func:`route` :term:`decorator` is used do bind a piece of code to an URL. In this example we want to answer requests to ``/hello``.
 3. This function is the :term:`handler function` or :term:`callback` for the ``/hello`` route. It is called every time someone requests the ``/hello`` URL and is responsible for generating the page content.
-4. In this example we simply return a string to the browser.
+4. For now, we just return a simple string to the browser.
 5. In the last line we start the actual HTTP server. The default is a development server running on 'localhost' port 8080 and serving requests until you hit :kbd:`Control-c`.
 
-This is it. Run this script, visit http://localhost:8080/hello and you will see "Hello World!" in your browser. Of cause this is a very simple example, but it shows the basic concept of how applications are built with Bottle. Continue reading and you'll see what else is possible.
-  
+This is it. Run this script, visit http://localhost:8080/hello and you will see "Hello World!" in your browser. Of course this is a very simple example, but it shows the basic concept of how applications are built with Bottle. Continue reading and you'll see what else is possible.
+
+
 .. rubric:: The Application Object
 
-For the sake of simplicity, most examples in this tutorial use a module-level :func:`route` decorator to bind routes. This decorator adds routes to a global application object that is created automatically in the background. If you prefer a more explicit way to define your application and don't mind the extra typing, you can create a separate application object and use that instead of the global one::
+For the sake of simplicity, most examples in this tutorial use a module-level :func:`route` decorator to bind routes. This decorator adds routes to a global application object that is created for you automatically. If you prefer a more explicit way to define your application and don't mind the extra typing, you can create a separate application object and use that instead of the global one::
 
-    from bottle import Bottle
+    from bottle import Bottle, run
     
     app = Bottle()
     
@@ -105,9 +106,7 @@ The object-oriented approach is further described in the :ref:`default-app` sect
 Request Routing
 ==============================================================================
 
-As you have learned before, *routes* are used to map URLs to callback functions. These functions are executed on every request that matches the route and their return value is returned to the browser. You can add any number of routes to a callback using the :func:`route` decorator.
-
-::
+As you have learned before, applications consist of *routes* that map *URLs* to *callback functions*. These callbacks are executed once for each request that matches the route. The return value is sent to the client. You can add any number of routes to a callback simply by applying the :func:`route` decorator::
 
     from bottle import route
     
@@ -330,7 +329,7 @@ You may provide a different HTTP status code as a second parameter.
 
 .. rubric:: Other Exceptions
 
-All exceptions other than :exc:`HTTPResponse` or :exc:`HTTPError` will result in a ``500 Internal Server Error`` response, so they won't crash your WSGI server. You can turn off this behaviour to handle exceptions in your middleware by setting ``bottle.app().catchall`` to ``False``.
+All exceptions other than :exc:`HTTPResponse` or :exc:`HTTPError` will result in a ``500 Internal Server Error`` response, so they won't crash your WSGI server. You can turn off this behavior to handle exceptions in your middleware by setting ``bottle.app().catchall`` to ``False``.
 
 
 .. _tutorial-response:
@@ -342,25 +341,31 @@ Response meta-data such as the HTTP status code, response header and cookies are
 
 .. rubric:: Status Code
 
-The `HTTP status code <http_code>`_ controls the behaviour of the browser and defaults to ``200 OK``. In most scenarios you won't need to set the :attr:`Response.status` attribute manually, but use the :func:`abort` helper or return an :exc:`HTTPResponse` instance with the appropriate status code. Any integer is allowed but only the codes defined by the `HTTP specification <http_code>`_ will have an effect other than confusing the browser and breaking standards.
+The `HTTP status code <http_code>`_ controls the behavior of the browser and defaults to ``200 OK``. In most scenarios you won't need to set the :attr:`Response.status` attribute manually, but use the :func:`abort` helper or return an :exc:`HTTPResponse` instance with the appropriate status code. Any integer is allowed but only the codes defined by the `HTTP specification <http_code>`_ will have an effect other than confusing the browser and breaking standards.
 
 .. rubric:: Response Header
 
-Add values to the :attr:`Response.headers` dictionary to add or change response headers. Note that the keys are case-insensitive.
+Response headers such as ``Cache-Control`` or ``Location`` are defined via :meth:`Response.set_header`. This method takes two parameters, a header name and a value. The name part is case-insensitive::
 
-::
-  
   @route('/wiki/:page')
   def wiki(page):
-      response.headers['Content-Language'] = 'en'
-      return get_wiki_page(page)
+      response.set_header('Content-Language', 'en')
+      ...
 
-.. _tutorial-signed-cookies:
+Most headers are exclusive, meaning that only one header per name is send to the client. Some special headers however are allowed to appear more than once in a response. To add an additional header, use :meth:`Response.add_header` instead of :meth:`Response.set_header`::
+
+    response.set_header('Set-Cookie', 'name=value')
+    response.add_header('Set-Cookie', 'name2=value2')
+
+Please not that this is just an example. If you want to work with cookies, read :ref:`ahead <tutorial-cookies>`.
+
+
+.. _tutorial-cookies:
 
 Cookies
 -------------------------------------------------------------------------------
 
-A cookie is a piece of text stored in the user's browser. You can access cookies via :meth:`Request.get_cookie` and set new cookies with the :meth:`Response.set_cookie` method::
+A cookie is a named piece of text stored in the user's browser cache. You can access previously defined cookies via :meth:`Request.get_cookie` and set new cookies with :meth:`Response.set_cookie`::
 
     @route('/hello')
     def hello_again(self):
@@ -370,16 +375,27 @@ A cookie is a piece of text stored in the user's browser. You can access cookies
             response.set_cookie("visited", "yes")
             return "Hello there! Nice to meet you"
 
-But there are some gotchas:
+The :meth:`Response.set_cookie` method accepts a number of additional keyword arguments that control the cookies lifetime and behavior. Some of the most common settings are described here:
+
+* **max_age:**    Maximum age in seconds. (default: None)
+* **expires:**    A datetime object or UNIX timestamp. (default: None)
+* **domain:**     The domain that is allowed to read the cookie. (default: current domain)
+* **path:**       Limit the cookie to a given path (default: ``/``)
+* **secure:**     Limit the cookie to HTTPS connections (default: off).
+* **httponly:**   Prevent client-side javascript to read this cookie (default: off, requires Python 2.6 or newer).
+
+If neither `expires` nor `max_age` is set, the cookie expires at the end of the browser session or as soon as the browser window is closed. There are some other gotchas you should consider when using cookies:
 
 * Cookies are limited to 4kb of text in most browsers.
-* Some users configure their browsers to not accept cookies at all. Most search-engines ignore cookies, too. Make sure that your application is still usable without cookies.
-* Cookies are stored at client side and not encrypted in any way. Whatever you store in a cookie, the user can read it. Worth than that, an attacker might be able to steal a user's cookies through `XSS <http://en.wikipedia.org/wiki/HTTP_cookie#Cookie_theft_and_session_hijacking>`_ vulnerabilities on your side. Some viruses are known to read the browser cookies, too. Do not store confidential information in cookies, ever. 
+* Some users configure their browsers to not accept cookies at all. Most search-engines ignore cookies, too. Make sure that your application still works without cookies.
+* Cookies are stored at client side and not encrypted in any way. Whatever you store in a cookie, the user can read it. Worth than that, an attacker might be able to steal a user's cookies through `XSS <http://en.wikipedia.org/wiki/HTTP_cookie#Cookie_theft_and_session_hijacking>`_ vulnerabilities on your side. Some viruses are known to read the browser cookies, too. Do not store confidential information in cookies, ever.
 * Cookies are easily forged by malicious clients. Do not trust cookies.
+
+.. _tutorial-signed-cookies:
 
 .. rubric:: Signed Cookies
 
-As mentioned above, cookies are easily forged by malicious clients. Bottle can cryptographically sign your cookies to prevent this kind of manipulation. All you have to do is to provide a signature key whenever you read or set a cookie and keep that key a secret. As a result, :meth:`Request.get_cookie` will return ``None`` if the cookie is not signed or the signature keys don't match::
+As mentioned above, cookies are easily forged by malicious clients. Bottle can cryptographically sign your cookies to prevent this kind of manipulation. All you have to do is to provide a signature key via the `secret` keyword argument whenever you read or set a cookie and keep that key a secret. As a result, :meth:`Request.get_cookie` will return ``None`` if the cookie is not signed or the signature keys don't match::
 
     @route('/login')
     def login():
@@ -399,9 +415,9 @@ As mentioned above, cookies are easily forged by malicious clients. Bottle can c
         else:
             return "You are not logged in. Access denied."
 
-In addition, Bottle automatically pickles and unpickles any data stored to signed cookies. This allows you to store any pickle-able object (not only strings) to cookies, as long as the pickled data does not exceed the 4kb limitation.
+In addition, Bottle automatically pickles and unpickles any data stored to signed cookies. This allows you to store any pickle-able object (not only strings) to cookies, as long as the pickled data does not exceed the 4kb limit.
 
-.. warning:: Signed cookies are not encrypted (the client can still see the content) and not copy-protected (the client can restore an old cookie). The main intention is to make pickling and unpickling save, not to store secret information at client side.
+.. warning:: Signed cookies are not encrypted (the client can still see the content) and not copy-protected (the client can restore an old cookie). The main intention is to make pickling and unpickling save and prevent manipulation, not to store secret information at client side.
 
 
 
@@ -482,7 +498,7 @@ Here is an example for a simple file upload form:
     def do_upload():
         name = request.forms.get('name')
         data = request.files.get('data')
-        if name and data:
+        if name and data.file:
             raw = data.file.read() # This is dangerous for big files
             filename = data.filename
             return "Hello %s! You uploaded %s (%d bytes)." % (name, filename, len(raw))
