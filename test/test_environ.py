@@ -4,7 +4,7 @@
 import unittest
 import sys, os.path
 import bottle
-from bottle import request, response, tob, tonat, touni, json_dumps
+from bottle import request, response, tob, touni, json_dumps, _e
 import tools
 import wsgiref.util
 import threading
@@ -88,9 +88,9 @@ class TestRequest(unittest.TestCase):
         e = {}
         wsgiref.util.setup_testing_defaults(e)
         request = BaseRequest(e)
-        self.assertEqual(list(request), e.keys())
+        self.assertEqual(list(request), list(e.keys()))
         self.assertEqual(len(request), len(e))
-        for k, v in e.iteritems():
+        for k, v in e.items():
             self.assertTrue(k in request)
             self.assertEqual(request[k], v)
             request[k] = 'test'
@@ -129,7 +129,7 @@ class TestRequest(unittest.TestCase):
         t['a=a']      = {'a': 'a'}
         t['a=a; b=b'] = {'a': 'a', 'b':'b'}
         t['a=a; a=b'] = {'a': 'b'}
-        for k, v in t.iteritems():
+        for k, v in t.items():
             request = BaseRequest({'HTTP_COOKIE': k})
             for n in v:
                 self.assertEqual(v[n], request.cookies[n])
@@ -147,7 +147,7 @@ class TestRequest(unittest.TestCase):
         
     def test_post(self):
         """ Environ: POST data """ 
-        sq = u'a=a&a=1&b=b&c=&d'.encode('utf8')
+        sq = tob('a=a&a=1&b=b&c=&d')
         e = {}
         wsgiref.util.setup_testing_defaults(e)
         e['wsgi.input'].write(sq)
@@ -165,7 +165,7 @@ class TestRequest(unittest.TestCase):
         self.assertEqual('', request.POST['d'])
 
     def test_bodypost(self):
-        sq = u'foobar'.encode('utf8')
+        sq = tob('foobar')
         e = {}
         wsgiref.util.setup_testing_defaults(e)
         e['wsgi.input'].write(sq)
@@ -177,7 +177,7 @@ class TestRequest(unittest.TestCase):
 
     def test_body_noclose(self):
         """ Test that the body file handler is not closed after request.POST """
-        sq = u'a=a&a=1&b=b&c=&d'.encode('utf8')
+        sq = tob('a=a&a=1&b=b&c=&d')
         e = {}
         wsgiref.util.setup_testing_defaults(e)
         e['wsgi.input'].write(sq)
@@ -206,33 +206,33 @@ class TestRequest(unittest.TestCase):
         """ Environ: GET and POST should not leak into each other """ 
         e = {}
         wsgiref.util.setup_testing_defaults(e)
-        e['wsgi.input'].write(u'b=b'.encode('utf8'))
+        e['wsgi.input'].write(tob('b=b'))
         e['wsgi.input'].seek(0)
         e['CONTENT_LENGTH'] = '3'
         e['QUERY_STRING'] = 'a=a'
         e['REQUEST_METHOD'] = "POST"
         request = BaseRequest(e)
-        self.assertEqual(['a'], request.GET.keys())
-        self.assertEqual(['b'], request.POST.keys())
+        self.assertEqual(['a'], list(request.GET.keys()))
+        self.assertEqual(['b'], list(request.POST.keys()))
 
     def test_body(self):
         """ Environ: Request.body should behave like a file object factory """ 
         e = {}
         wsgiref.util.setup_testing_defaults(e)
-        e['wsgi.input'].write(u'abc'.encode('utf8'))
+        e['wsgi.input'].write(tob('abc'))
         e['wsgi.input'].seek(0)
         e['CONTENT_LENGTH'] = str(3)
         request = BaseRequest(e)
-        self.assertEqual(u'abc'.encode('utf8'), request.body.read())
-        self.assertEqual(u'abc'.encode('utf8'), request.body.read(3))
-        self.assertEqual(u'abc'.encode('utf8'), request.body.readline())
-        self.assertEqual(u'abc'.encode('utf8'), request.body.readline(3))
+        self.assertEqual(tob('abc'), request.body.read())
+        self.assertEqual(tob('abc'), request.body.read(3))
+        self.assertEqual(tob('abc'), request.body.readline())
+        self.assertEqual(tob('abc'), request.body.readline(3))
 
     def test_bigbody(self):
         """ Environ: Request.body should handle big uploads using files """
         e = {}
         wsgiref.util.setup_testing_defaults(e)
-        e['wsgi.input'].write((u'x'*1024*1000).encode('utf8'))
+        e['wsgi.input'].write(tob('x')*1024*1000)
         e['wsgi.input'].seek(0)
         e['CONTENT_LENGTH'] = str(1024*1000)
         request = BaseRequest(e)
@@ -246,7 +246,7 @@ class TestRequest(unittest.TestCase):
         """ Environ: Request.body should truncate to Content-Length bytes """
         e = {}
         wsgiref.util.setup_testing_defaults(e)
-        e['wsgi.input'].write((u'x'*1024).encode('utf8'))
+        e['wsgi.input'].write(tob('x')*1024)
         e['wsgi.input'].seek(0)
         e['CONTENT_LENGTH'] = '42'
         request = BaseRequest(e)
@@ -258,7 +258,7 @@ class TestRequest(unittest.TestCase):
     def test_multipart(self):
         """ Environ: POST (multipart files and multible values per key) """
         fields = [('field1','value1'), ('field2','value2'), ('field2','value3')]
-        files = [('file1','filename1.txt','content1'), ('file2','filename2.py',u'ä\nö\rü')]
+        files = [('file1','filename1.txt','content1'), ('file2','filename2.py',touni('ä\nö\rü'))]
         e = tools.multipart_environ(fields=fields, files=files)
         request = BaseRequest(e)
         # File content
@@ -276,7 +276,7 @@ class TestRequest(unittest.TestCase):
         x = request.POST['file2'].file.read()
         if (3,2,0) > sys.version_info >= (3,0,0):
             x = x.encode('ISO-8859-1')
-        self.assertEqual(u'ä\nö\rü'.encode('utf8'), x)
+        self.assertEqual(tob('ä\nö\rü'), x)
         # No file
         self.assertTrue('file3' not in request.POST)
         self.assertTrue('file3' not in request.files)
@@ -318,7 +318,7 @@ class TestRequest(unittest.TestCase):
     def test_json_valid(self):
         """ Environ: Request.json property. """
         test = dict(a=5, b='test', c=[1,2,3])
-        e = {'CONTENT_TYPE': 'application/json'}
+        e = {'CONTENT_TYPE': 'application/json; charset=UTF-8'}
         wsgiref.util.setup_testing_defaults(e)
         e['wsgi.input'].write(tob(json_dumps(test)))
         e['wsgi.input'].seek(0)
@@ -373,68 +373,68 @@ class TestResponse(unittest.TestCase):
         rs = BaseResponse()
 
         rs.status = 200
-        self.assertEqual(rs.status, 200)
+        self.assertEqual(rs.status, rs.status_line)
         self.assertEqual(rs.status_code, 200)
         self.assertEqual(rs.status_line, '200 OK')
 
         rs.status = 999
-        self.assertEqual(rs.status, 999)
+        self.assertEqual(rs.status, rs.status_line)
         self.assertEqual(rs.status_code, 999)
         self.assertEqual(rs.status_line, '999 Unknown')
 
         rs.status = 404
-        self.assertEqual(rs.status, 404)
+        self.assertEqual(rs.status, rs.status_line)
         self.assertEqual(rs.status_code, 404)
         self.assertEqual(rs.status_line, '404 Not Found')
 
         def test(): rs.status = -200
         self.assertRaises(ValueError, test)
-        self.assertEqual(rs.status, 404) # last value
+        self.assertEqual(rs.status, rs.status_line) # last value
         self.assertEqual(rs.status_code, 404) # last value
         self.assertEqual(rs.status_line, '404 Not Found') # last value
 
         def test(): rs.status = 5
         self.assertRaises(ValueError, test)
-        self.assertEqual(rs.status, 404) # last value
+        self.assertEqual(rs.status, rs.status_line) # last value
         self.assertEqual(rs.status_code, 404) # last value
         self.assertEqual(rs.status_line, '404 Not Found') # last value
 
         rs.status = '999 Who knows?' # Illegal, but acceptable three digit code
-        self.assertEqual(rs.status, 999)
+        self.assertEqual(rs.status, rs.status_line)
         self.assertEqual(rs.status_code, 999)
         self.assertEqual(rs.status_line, '999 Who knows?')
 
         rs.status = 555 # Strange code
-        self.assertEqual(rs.status, 555)
+        self.assertEqual(rs.status, rs.status_line)
         self.assertEqual(rs.status_code, 555)
         self.assertEqual(rs.status_line, '555 Unknown')
 
         rs.status = '404 Brain not Found' # Custom reason
-        self.assertEqual(rs.status, 404)
+        self.assertEqual(rs.status, rs.status_line)
         self.assertEqual(rs.status_code, 404)
         self.assertEqual(rs.status_line, '404 Brain not Found')
 
         def test(): rs.status = '5 Illegal Code'
         self.assertRaises(ValueError, test)
-        self.assertEqual(rs.status, 404) # last value
+        self.assertEqual(rs.status, rs.status_line) # last value
         self.assertEqual(rs.status_code, 404) # last value
         self.assertEqual(rs.status_line, '404 Brain not Found') # last value
 
         def test(): rs.status = '-99 Illegal Code'
         self.assertRaises(ValueError, test)
-        self.assertEqual(rs.status, 404) # last value
+        self.assertEqual(rs.status, rs.status_line) # last value
         self.assertEqual(rs.status_code, 404) # last value
         self.assertEqual(rs.status_line, '404 Brain not Found') # last value
 
         def test(): rs.status = '1000 Illegal Code'
         self.assertRaises(ValueError, test)
-        self.assertEqual(rs.status, 404) # last value
+        self.assertEqual(rs.status, rs.status_line) # last value
         self.assertEqual(rs.status_code, 404) # last value
         self.assertEqual(rs.status_line, '404 Brain not Found') # last value
 
         def test(): rs.status = '555' # No reason
         self.assertRaises(ValueError, test)
-        self.assertEqual(rs.status, 404) # last value
+        self.assertEqual(rs.status, rs.status_line) # last value
         self.assertEqual(rs.status_code, 404) # last value
         self.assertEqual(rs.status_line, '404 Brain not Found') # last value
 
@@ -452,14 +452,34 @@ class TestResponse(unittest.TestCase):
         self.assertEqual(rs.charset, 'UTF-8')
 
     def test_set_cookie(self):
-        response = BaseResponse()
-        response.set_cookie('name', 'value', max_age=5)
-        response.set_cookie('name2', 'value 2', path='/foo')
-        cookies = [value for name, value in response.wsgiheader()
+        r = BaseResponse()
+        r.set_cookie('name1', 'value', max_age=5)
+        r.set_cookie('name2', 'value 2', path='/foo')
+        cookies = [value for name, value in r.headerlist
                    if name.title() == 'Set-Cookie']
         cookies.sort()
-        self.assertTrue(cookies[0], 'name=value; Max-Age=5')
-        self.assertTrue(cookies[1], 'name2="value 2"; Path=/foo')
+        self.assertEqual(cookies[0], 'name1=value; Max-Age=5')
+        self.assertEqual(cookies[1], 'name2="value 2"; Path=/foo')
+
+    def test_set_cookie_maxage(self):
+        import datetime
+        r = BaseResponse()
+        r.set_cookie('name1', 'value', max_age=5)
+        r.set_cookie('name2', 'value', max_age=datetime.timedelta(days=1))
+        cookies = sorted([value for name, value in r.headerlist
+                   if name.title() == 'Set-Cookie'])
+        self.assertEqual(cookies[0], 'name1=value; Max-Age=5')
+        self.assertEqual(cookies[1], 'name2=value; Max-Age=86400')
+
+    def test_set_cookie_expires(self):
+        import datetime
+        r = BaseResponse()
+        r.set_cookie('name1', 'value', expires=42)
+        r.set_cookie('name2', 'value', expires=datetime.datetime(1970,1,1,0,0,43))
+        cookies = sorted([value for name, value in r.headerlist
+                   if name.title() == 'Set-Cookie'])
+        self.assertEqual(cookies[0], 'name1=value; expires=Thu, 01 Jan 1970 00:00:42 GMT')
+        self.assertEqual(cookies[1], 'name2=value; expires=Thu, 01 Jan 1970 00:00:43 GMT')
 
     def test_delete_cookie(self):
         response = BaseResponse()
@@ -525,7 +545,8 @@ class TestRedirect(unittest.TestCase):
         request.bind(env)
         try:
             bottle.redirect(target, **(query or {}))
-        except bottle.HTTPResponse, r:
+        except bottle.HTTPResponse:
+            r = _e()
             self.assertEqual(status, r.status)
             self.assertTrue(r.headers)
             self.assertEqual(result, r.headers['Location'])

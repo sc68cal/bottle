@@ -2,12 +2,8 @@
 import unittest
 import sys, os.path
 import bottle
-import urllib2
-from StringIO import StringIO
-import thread
-import time
 from tools import ServerTestBase
-from bottle import tob, touni, tonat
+from bottle import tob
 
 class TestWsgi(ServerTestBase):
     ''' Tests for WSGI functionality, routing and output casting (decorators) '''
@@ -80,7 +76,7 @@ class TestWsgi(ServerTestBase):
         """ WSGI: Exceptions within handler code (HTTP 500) """
         @bottle.route('/my/:string')
         def test(string): return string
-        self.assertBody(tob(u'urf8-öäü'), '/my/urf8-öäü')
+        self.assertBody(tob('urf8-öäü'), '/my/urf8-öäü')
 
     def test_utf8_404(self):
         self.assertStatus(404, '/not-found/urf8-öäü')
@@ -352,28 +348,6 @@ class TestAppShortcuts(ServerTestBase):
         self.assertWraps(bottle.url, bottle.app().get_url)
 
 
-
-class TestAppMounting(ServerTestBase):
-    def setUp(self):
-        ServerTestBase.setUp(self)
-        self.subapp = bottle.Bottle()
-
-    def test_basicmounting(self):
-        bottle.app().mount(self.subapp, '/test')
-        self.assertStatus(404, '/')
-        self.assertStatus(404, '/test')
-        self.assertStatus(404, '/test/')
-        self.assertStatus(404, '/test/test/bar')
-        @self.subapp.route('/')
-        @self.subapp.route('/test/:test')
-        def test(test='foo'):
-            return test
-        self.assertStatus(404, '/')
-        self.assertStatus(404, '/test')
-        self.assertStatus(200, '/test/')
-        self.assertBody('foo', '/test/')
-        self.assertStatus(200, '/test/test/bar')
-        self.assertBody('bar', '/test/test/bar')
 
 
 

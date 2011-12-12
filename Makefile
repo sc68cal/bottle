@@ -6,8 +6,9 @@ ALLFILES = $(shell echo bottle.py test/*.py test/views/*.tpl)
 
 release: test_all
 	python setup.py --version | egrep -q -v '[a-zA-Z]' # Fail on dev/rc versions
-	git -a -m "Release of $(VERSION)" $(VERSION) # Fail on existing tags
+	git tag -a -m "Release of $(VERSION)" $(VERSION) # Fail on existing tags
 	python setup.py sdist register upload # Release to pypi
+	echo "Do not forget to: git push --tags"
 
 install:
 	python setup.py install
@@ -29,25 +30,11 @@ test_26:
 test_27:
 	python2.7 test/testall.py
 
-test_31: 2to3
-	python3.1 build/2to3/test/testall.py
+test_31:
+	python3.1 test/testall.py
 
-test_32: 2to3
-	python3.2 build/2to3/test/testall.py
-
-# If anyne knows a better way, please tell me
-# This builds missig files in build/2to3 by either copying or 2to3-ing them.
-
-2to3: $(addprefix build/2to3/,$(ALLFILES))
-
-build/2to3/%.tpl: %.tpl
-	mkdir -p `dirname $@`
-	cp -a $< $@
-
-build/2to3/%.py: %.py
-	mkdir -p `dirname $@`
-	cp -a $< $@
-	2to3 -w $@ 1>/dev/null
+test_32:
+	python3.2 test/testall.py
 
 clean:
 	find . -name '*.pyc' -exec rm -f {} +

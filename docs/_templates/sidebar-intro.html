@@ -1,16 +1,13 @@
 <p>
    Bottle is a fast, simple and lightweight WSGI micro web-framework for Python.
 </p>
-{% if 'dev' in release %}
-<p>This documentation is for Bottle <b>{{release}}</b>, which is
-  not released yet. The current stable release is <a href="http://bottlepy.org/docs/{{releases[1][0]}}/"><b>Bottle {{releases[1][0]}}</b></a>.</p>
-{% endif %}
 <h3>Some Links</h3>
 <ul>
   <li><a target="_blank" href="https://github.com/defnull/bottle/issues">Issue Tracker</a></li>
   <li><a target="_blank" href="http://pypi.python.org/pypi/bottle">Bottle @ PyPI</a></li>
   <li><a target="_blank" href="https://github.com/defnull/bottle">Bottle @ GitHub</a></li>
   <li><a target="_blank" href="http://groups.google.de/group/bottlepy">Bottle @ Google Groups</a></li>
+  <li><a target="_blank" href="https://plus.google.com/b/104025895326575643538/104025895326575643538/posts">Bottle @ Google plus</a></li>
   <li><a target="_blank" href="http://twitter.com/bottlepy">Bottle @ Twitter</a></li>
   <li><a target="_blank" href="http://webchat.freenode.net/?channels=bottlepy">Bottle @ Freenode (Chat)</a></li>
 </ul>
@@ -25,7 +22,11 @@
 <h3>Other Releases</h3>
 <ul>
   {% for v, name in releases %}
-  <li><a href="http://bottlepy.org/docs/{{v}}/">Bottle {{v}} ({{name}})</a></li>
+    {% if v == version %}
+      <li><b>Bottle {{v}}</b> ({{name}})</li>
+    {% else %}
+      <li><a href="http://bottlepy.org/docs/{{v}}/">Bottle {{v}}</a> ({{name}})</li>
+  {% endif %}
   {% endfor %}
 </ul>
 
